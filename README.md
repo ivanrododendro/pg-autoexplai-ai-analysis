@@ -34,6 +34,33 @@ You need to set up API keys for either:
 Your PostgreSQL instance must be configured with auto_explain to generate execution plans in the log files.
 Setting must be logged in order for the script to identify the end of th plan.
 
+## Configuration Files
+
+### prompts.txt
+
+This file contains the prompts used for AI analysis. It should include the following prompts:
+
+- `PLAN_ANALYSIS`: The main prompt for analyzing execution plans.
+- `FINAL_ANALYSIS`: The prompt for the final analysis
+
+Ensure that these prompts are properly defined in the file for accurate AI analysis.
+
+### api_keys.txt
+
+This file should contain your API keys for OpenAI and Google Gemini. The file should have the following structure:
+- openai_key=your_openai_api_key_here
+- gemini_key=your_google_api_key_here
+
+Replace `your_openai_api_key_here` and `your_google_api_key_here` with your actual API keys.
+
+**Important:** Keep this file secure and do not share it publicly. Add it to your .gitignore file to prevent accidental commits.
+
+## Notes
+
+- Ensure both `prompts.txt` and `api_keys.txt` are in the same directory as the script.
+- The script will automatically read these files when executed.
+- If you're using a specific AI model (OpenAI or Google Gemini), you only need to provide the corresponding API key.
+
 ## Usage
 
 ### Basic Usage

@@ -1,4 +1,4 @@
-# PostgreSQL Log Analysis Tool
+# PostgreSQL Auto Explain Log AI Analysis Tool
 
 This tool analyzes PostgreSQL auto_explain log files using AI (OpenAI GPT or Google Gemini) to provide optimization recommendations and generate interactive HTML reports.
 

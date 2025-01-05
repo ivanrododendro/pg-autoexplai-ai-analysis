@@ -74,7 +74,7 @@ def estimate_token_count(text, model="gpt-4"):
     return len(encoding.encode(text))
 
 
-async def call_gemini(full_prompt, model, api_key):
+async def call_gemini(full_prompt, model, api_key, timeout):
     # Configure the Gemini API
     genai.configure(api_key=api_key)
 
@@ -85,7 +85,7 @@ async def call_gemini(full_prompt, model, api_key):
         # Generate content
         response = await asyncio.wait_for(
             model.generate_content_async(full_prompt),
-            timeout=90,
+            timeout=timeout,
         )
 
         if response.text:
@@ -101,26 +101,24 @@ async def call_gemini(full_prompt, model, api_key):
         return None
 
 
-def send_plan_to_ai(plan, model):
+def send_plan_to_ai(plan, model, timeout):
     static_prompt = g_prompts.get('PLAN_ANALYSIS', '')
     full_prompt = static_prompt + "\n\n" + plan
 
-    full_prompt = static_prompt + "\\n\\n" + plan
-
-    return call_ai_provider(full_prompt, model)
+    return call_ai_provider(full_prompt, model, timeout)
 
 
-def call_ai_provider(prompt, model):
+def call_ai_provider(prompt, model, timeout):
     if model.startswith("gpt"):
-        return call_chatgpt(prompt, model, g_openai_key)
+        return call_chatgpt(prompt, model, g_openai_key, timeout)
     elif model.startswith("gemini"):
-        return asyncio.run(call_gemini(prompt, model, g_gemini_key))
+        return asyncio.run(call_gemini(prompt, model, g_gemini_key, timeout))
     else:
         logger.error(f"Unsupported model: {model}")
         return None
 
 
-def call_chatgpt(full_prompt, model, openai_key):
+def call_chatgpt(full_prompt, model, openai_key, timeout=90):
     # Prepare the request payload
     payload = {
         "model": model,
@@ -139,7 +137,7 @@ def call_chatgpt(full_prompt, model, openai_key):
     # Send the POST request to OpenAI API
     try:
         response = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers,
-                                 verify=False)
+                                 verify=False, timeout=timeout)
         response.raise_for_status()  # Raise an error for bad status codes
         responseJson = response.json()
 
@@ -150,6 +148,9 @@ def call_chatgpt(full_prompt, model, openai_key):
             responseText = "No analysis content found in ChatGPT response."
 
         return responseText
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout error: The request to OpenAI API timed out after {timeout} seconds.")
+        return None
     except requests.exceptions.RequestException as e:
         logger.error(f"Error communicating with OpenAI API: {e}")
         if hasattr(e, 'response') and e.response is not None:
@@ -208,7 +209,7 @@ def parse_log_entry_with_title(log_entry):
 
 
 # Function to generate an HTML report
-def generate_html_report(reports, output_path, frequent_hints_analysis, model, query_occurrences):
+def generate_html_report(output_path, frequent_hints_analysis, model, query_occurrences, days):
     logger.info("Generating HTML report")
     """
     Generates an HTML report based on the provided analysis reports.
@@ -244,32 +245,44 @@ def generate_html_report(reports, output_path, frequent_hints_analysis, model, q
     """
     content = ""
 
-    for i, report in enumerate(reports):
-        # Generate unique IDs for each Vue app instance
-        app_id = f"app-{i}"
+    sorted_days = sorted(days.keys())
+
+    for day in sorted_days:
         content += f"""
-        <a data-toggle="collapse" href="#collapseExample-{app_id}" role="button" aria-expanded="false" aria-controls="collapseExample-{app_id}">
-        <h5>{report['query_timestamp']} : {report['title']}</h5>
-        </a>
-        <div class="collapse" id="collapseExample-{app_id}">
-        <div class="card card-body">
-        <p>{report['chatgpt_hints']}</p>
-        <div id="{app_id}"  style="min-height: 400px;">
-            <pev2 :plan-source="plan" :plan-query="query"/>
-        </div>
-        <script>
-            createApp({{
-                data() {{
-                    return {{
-                        plan: `{report['plan']}`,
-                        query: `{report['query_text']}`
-                    }};
-                }}
-            }}).component("pev2", pev2.Plan).mount("#{app_id}");
-        </script>
-        </div>
-        </div>
+            <a data-toggle="collapse" href="#collapseDay-{day}" role="button" aria-expanded="false" aria-controls="collapseDay-{day}">
+                <h3>{day}</h3>
+            </a>
+            <div class="collapse" id="collapseDay-{day}">
+            <div class="card card-body">
         """
+        for i, report in enumerate(days[day]):
+            # Generate unique IDs for each Vue app instance
+            app_id = f"app-{i}"
+            content += f"""
+            <a data-toggle="collapse" href="#collapseExample-{app_id}" role="button" aria-expanded="false" aria-controls="collapseExample-{app_id}">
+            <h5>{report['query_timestamp']} : {report['title']} ({report['code']})</h5>
+            </a>
+            <div class="collapse" id="collapseExample-{app_id}">
+            <div class="card card-body">
+            <p>{report['chatgpt_hints']}</p>
+            <div id="{app_id}"  style="min-height: 400px;">
+                <pev2 :plan-source="plan" :plan-query="query"/>
+            </div>
+            <script>
+                createApp({{
+                    data() {{
+                        return {{
+                            plan: `{report['plan']}`,
+                            query: `{report['query_text']}`
+                        }};
+                    }}
+                }}).component("pev2", pev2.Plan).mount("#{app_id}");
+            </script>
+            </div>
+            </div>      
+            """
+        content += "</div></div>"
+
     content += "<h2>Synthèse</h2>"
     content += """
         <a data-toggle="collapse" href="#requestCollapse" role="button" aria-expanded="false" aria-controls="requestCollapse">
@@ -295,12 +308,42 @@ def generate_html_report(reports, output_path, frequent_hints_analysis, model, q
     Path(output_path).write_text(html, encoding="utf-8")
 
 
-def main(log_file_path, model, output_path, max_ai_calls):
+import hashlib
+
+def stable_hash_five_characters(value):
+    """
+    Generates a unique and consistent 5-character hash for a given value.
+
+    :param value: The value to hash (string or number).
+    :return: A 5-character hash string.
+    """
+    # Convert the value to a string and encode it
+    value_str = str(value).encode('utf-8')
+
+    # Generate a stable hash using SHA-256
+    hash_object = hashlib.sha256(value_str)
+
+    # Convert the hash to base36 (numbers and uppercase letters)
+    base36 = ""
+    alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    hash_value = int(hash_object.hexdigest(), 16)  # Convert hex to int
+    while hash_value > 0:
+        hash_value, remainder = divmod(hash_value, 36)
+        base36 = alphabet[remainder] + base36
+
+    # Ensure the hash is exactly 5 characters long
+    return base36[:5].zfill(5)  # Pad with leading zeros if necessary
+
+
+from collections import defaultdict
+
+def main(log_file_path, model, output_path, max_ai_calls, timeout):
     model_token_limit = g_token_limits.get(model, 8192)
     in_plan = False
     plan_lines = []
     reports = []
-    ai_call_count = 0  # Initialize the counter
+    days = defaultdict(list)  # Initialize days as a defaultdict of lists
+    ai_call_count = 1  # Initialize the counter
     last_plan_line = 0  # Initialize the line counter
     query_occurrences = {}  # Map to store query occurrences by title
 
@@ -322,6 +365,9 @@ def main(log_file_path, model, output_path, max_ai_calls):
                     title = parsed_result["job_name"] + query_name
                     execution_plan = parsed_result["execution_plan"]
                     estimated_tokens = estimate_token_count(plan_text, model)
+                    timestamp = parsed_result["timestamp"]
+                    day = timestamp[:10]  
+
                     logger.debug(f"Estimated tokens for plan: {estimated_tokens}")
 
                     # Update query occurrences
@@ -335,36 +381,41 @@ def main(log_file_path, model, output_path, max_ai_calls):
                         try:
                             logger.info(
                                 f"Sending plan to AI ({model}) for analysis for query at line {last_plan_line: } (call #{ai_call_count})")
-                            ai_hints = send_plan_to_ai(plan_text, model)
+                            ai_hints = send_plan_to_ai(plan_text, model, timeout)
                             ai_call_count += 1  # Increment the counter
 
                         except Exception as e:
                             ai_hints = f"Error during ChatGPT analysis: {e}"
 
-                    reports.append({
+                    report = {
                         "title": title,
                         "chatgpt_hints": ai_hints,
                         "plan": execution_plan,
                         "query_text": parsed_result["query_text"],
-                        "query_timestamp": parsed_result["timestamp"],
+                        "query_timestamp": timestamp,
                         "query_name": query_name,
-                        "job_name" : parsed_result["job_name"]
-                    })
+                        "job_name": parsed_result["job_name"],
+                        "code": stable_hash_five_characters(query_name),
+                        "day": day  # Add the day to each report
+                    }
+
+                    reports.append(report)
+                    days[day].append(report)  # Add the report to the corresponding day
 
                     in_plan = False
                     plan_lines = []
 
                     # Exit the loop if AI has been called more than the limit.
-                    if max_ai_calls != -1 and ai_call_count >= max_ai_calls:
+                    if max_ai_calls != -1 and ai_call_count > max_ai_calls:
                         logger.info(f"Reached maximum AI calls limit ({max_ai_calls}). Stopping analysis.")
                         break
 
-    analysis = create_analysis(reports, model)
+    analysis = create_analysis(reports, model, timeout)
 
-    generate_html_report(reports, output_path, analysis, model, query_occurrences)
+    generate_html_report(output_path, analysis, model, query_occurrences, days)
 
 
-def create_analysis(reports, model):
+def create_analysis(reports, model, timeout):
     logger.info("Creating final analysis...")
 
     # Concatenate all chatgpt_hints
@@ -376,7 +427,7 @@ def create_analysis(reports, model):
 
 
 # Call ChatGPT API with the concatenated hints
-    return call_ai_provider(prompt, model)
+    return call_ai_provider(prompt, model, timeout)
 
 
 if __name__ == "__main__":
@@ -388,11 +439,14 @@ if __name__ == "__main__":
                         help="AI model to use for analysis (default: gemini-2.0-flash-exp)")
     parser.add_argument("-c", "--max-ai-calls", type=int, default=-1,
                         help="Maximum number of AI calls to make. Use -1 for unlimited (default: -1)")
+    parser.add_argument("-t", "--timeout", type=int, default=90,
+                        help="Timeout for AI API calls in seconds (default: 90)")
     args = parser.parse_args()
 
     logger.info(f"Processing PostgreSQL log file {args.log_filename}")
     logger.info(f"Using model: {args.model}")
     logger.info(f"Maximum AI calls: {args.max_ai_calls if args.max_ai_calls != -1 else 'Unlimited'}")
+    logger.info(f"AI API call timeout: {args.timeout} seconds")
     logger.info(f"Output report: {args.log_filename}_report.html")
 
     # Load API keys
@@ -410,4 +464,4 @@ if __name__ == "__main__":
         logger.error("Failed to load prompts. Exiting.")
         exit(1)
 
-    main(args.log_filename, args.model, f"{args.log_filename}_report.html", args.max_ai_calls)
+    main(args.log_filename, args.model, f"{args.log_filename}_report.html", args.max_ai_calls, args.timeout)

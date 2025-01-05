@@ -14,6 +14,8 @@ This tool analyzes PostgreSQL auto_explain log files using AI (OpenAI GPT or Goo
 - Supports token limit management for different AI models
 - Handles multiple queries in a single log file
 - Provides optimization recommendations
+- Generates a unique hashcode for each query for identification and tracking over multiple analysis
+
 
 ## Requirements
 
@@ -99,12 +101,13 @@ This will:
 
 The tool generates an HTML report containing:
 - Individual query analysis with:
+    - Unique query hashcode for identification
     - Execution timestamp
     - Query name/description
     - AI-generated optimization recommendations
     - Interactive execution plan visualization
 - Summary section with:
-    - Query occurrence statistics
+    - Query occurrence statistics (using hashcodes for unique identification)
     - Most common optimization patterns
     - Overall recommendations
 
@@ -114,3 +117,5 @@ The tool generates an HTML report containing:
 - AI analysis is provided in French
 - Token limits are enforced based on the selected model
 - API keys should be properly configured before running the tool
+- Each query is assigned a unique hashcode for identification and tracking across multiple executions
+

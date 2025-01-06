@@ -12,6 +12,8 @@ import hashlib
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+g_total_input_tokens = 0
+
 
 def load_prompts(file_path='prompts.txt'):
     prompts = {}
@@ -72,9 +74,11 @@ g_token_limits = {
 
 # Add this function to estimate token count
 def estimate_token_count(text, model="gpt-4"):
+    global g_total_input_tokens
     encoding = tiktoken.encoding_for_model("gpt-4")
-    return len(encoding.encode(text))
-
+    token_count = len(encoding.encode(text))
+    g_total_input_tokens += token_count
+    return token_count
 
 async def call_gemini(full_prompt, model, api_key, timeout):
     # Configure the Gemini API
@@ -259,7 +263,7 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
         """
         for i, report in enumerate(days[day]):
             # Generate unique IDs for each Vue app instance
-            app_id = f"app-{i}"
+            app_id = f"app-{day}-{i}"
             content += f"""
             <a data-toggle="collapse" href="#collapseExample-{app_id}" role="button" aria-expanded="false" aria-controls="collapseExample-{app_id}">
             <h5>{report['query_timestamp']} : {report['title']} ({report['code']})</h5>
@@ -417,6 +421,8 @@ def main(log_file_path, model, output_path, max_ai_calls, timeout):
     analysis = create_analysis(reports, model, timeout)
 
     generate_html_report(output_path, analysis, model, query_occurrences, days, query_codes)
+
+    logger.info(f"Total input tokens processed: {g_total_input_tokens}")
 
 
 def create_analysis(reports, model, timeout):

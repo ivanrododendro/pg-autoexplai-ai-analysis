@@ -209,7 +209,7 @@ def parse_log_entry_with_title(log_entry):
 
 
 # Function to generate an HTML report
-def generate_html_report(output_path, frequent_hints_analysis, model, query_occurrences, days):
+def generate_html_report(output_path, frequent_hints_analysis, model, query_occurrences, days, query_codes):
     logger.info("Generating HTML report")
     """
     Generates an HTML report based on the provided analysis reports.
@@ -299,7 +299,7 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
                 <tbody>
                 """
     for (query_name, count) in query_occurrences.items():
-        content += f"<tr scope='row'><td>{query_name[:140]}</td><td>{count}</td></tr>"
+        content += f"<tr scope='row'><td>{query_name[:140]} ({query_codes[query_name]})</td><td>{count}</td></tr>"
 
     content += "</tbody> </table> </div></div>"
     content += f"<p>{frequent_hints_analysis}</p>"
@@ -346,6 +346,7 @@ def main(log_file_path, model, output_path, max_ai_calls, timeout):
     ai_call_count = 1  # Initialize the counter
     last_plan_line = 0  # Initialize the line counter
     query_occurrences = {}  # Map to store query occurrences by title
+    query_codes = {}  # Map to store query occurrences by title
 
     with open(log_file_path, 'r', encoding='utf-8') as f:
         for line_number, line in enumerate(f, 1):
@@ -366,12 +367,14 @@ def main(log_file_path, model, output_path, max_ai_calls, timeout):
                     execution_plan = parsed_result["execution_plan"]
                     estimated_tokens = estimate_token_count(plan_text, model)
                     timestamp = parsed_result["timestamp"]
-                    day = timestamp[:10]  
+                    day = timestamp[:10]
+                    query_code = stable_hash_five_characters(query_name)
 
                     logger.debug(f"Estimated tokens for plan: {estimated_tokens}")
 
                     # Update query occurrences
                     query_occurrences[query_name] = query_occurrences.get(query_name, 0) + 1
+                    query_codes[query_name] = query_code
 
                     if estimated_tokens > model_token_limit:
                         logger.warning(
@@ -395,7 +398,7 @@ def main(log_file_path, model, output_path, max_ai_calls, timeout):
                         "query_timestamp": timestamp,
                         "query_name": query_name,
                         "job_name": parsed_result["job_name"],
-                        "code": stable_hash_five_characters(query_name),
+                        "code": query_code,
                         "day": day  # Add the day to each report
                     }
 
@@ -412,7 +415,7 @@ def main(log_file_path, model, output_path, max_ai_calls, timeout):
 
     analysis = create_analysis(reports, model, timeout)
 
-    generate_html_report(output_path, analysis, model, query_occurrences, days)
+    generate_html_report(output_path, analysis, model, query_occurrences, days, query_codes)
 
 
 def create_analysis(reports, model, timeout):

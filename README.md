@@ -6,6 +6,7 @@ This tool analyzes PostgreSQL auto_explain log files using AI (OpenAI GPT or Goo
 
 - Analyzes PostgreSQL execution plans from auto_explain logs
 - Leverages AI (GPT-4/3.5 or Gemini) to provide optimization recommendations
+- Generates a unique hashcode for each query for identification and tracking over multiple analysis
 - Generates interactive HTML reports with:
     - Query execution plans visualization using pev2
     - AI-powered optimization suggestions
@@ -14,7 +15,6 @@ This tool analyzes PostgreSQL auto_explain log files using AI (OpenAI GPT or Goo
 - Supports token limit management for different AI models
 - Handles multiple queries in a single log file
 - Provides optimization recommendations
-- Generates a unique hashcode for each query for identification and tracking over multiple analysis
 
 
 ## Requirements
@@ -22,7 +22,7 @@ This tool analyzes PostgreSQL auto_explain log files using AI (OpenAI GPT or Goo
 ### Python Dependencies
 
 ```bash
-pip install requests tiktoken google-generativeai asyncio logging
+pip install requests tiktoken google-generativeai asyncio logging hashlib
 ```
 
 ### API Keys
@@ -34,7 +34,7 @@ You need to set up API keys for either:
 ### PostgreSQL Configuration
 
 Your PostgreSQL instance must be configured with auto_explain to generate execution plans in the log files.
-Setting must be logged in order for the script to identify the end of th plan.
+Settings must be logged in order for the script to identify the end of th plan.
 
 ## Configuration Files
 

@@ -6,6 +6,7 @@ import re
 import logging
 import google.generativeai as genai
 import asyncio
+import hashlib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -54,6 +55,7 @@ def load_api_keys(file_path='api_keys.txt'):
     except Exception as e:
         logger.error(f"Error reading API keys file: {e}")
         return None
+
 
 g_token_limits = {
     "gpt-4o": 128000,
@@ -210,7 +212,7 @@ def parse_log_entry_with_title(log_entry):
 
 # Function to generate an HTML report
 def generate_html_report(output_path, frequent_hints_analysis, model, query_occurrences, days, query_codes):
-    logger.info("Generating HTML report")
+    logger.info(f"Generating HTML report in {output_path}")
     """
     Generates an HTML report based on the provided analysis reports.
 
@@ -308,8 +310,6 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
     Path(output_path).write_text(html, encoding="utf-8")
 
 
-import hashlib
-
 def stable_hash_five_characters(value):
     """
     Generates a unique and consistent 5-character hash for a given value.
@@ -336,6 +336,7 @@ def stable_hash_five_characters(value):
 
 
 from collections import defaultdict
+
 
 def main(log_file_path, model, output_path, max_ai_calls, timeout):
     model_token_limit = g_token_limits.get(model, 8192)
@@ -428,8 +429,7 @@ def create_analysis(reports, model, timeout):
     prompt_template = g_prompts.get('FINAL_ANALYSIS', '')
     prompt = prompt_template.format(all_hints=all_hints)
 
-
-# Call ChatGPT API with the concatenated hints
+    # Call ChatGPT API with the concatenated hints
     return call_ai_provider(prompt, model, timeout)
 
 

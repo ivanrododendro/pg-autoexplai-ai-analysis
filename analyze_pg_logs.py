@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import html
 import requests
 import tiktoken
 import re
@@ -261,6 +262,7 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
             <div class="collapse" id="collapseDay-{day}">
             <div class="card card-body">
         """
+
         for i, report in enumerate(days[day]):
             # Generate unique IDs for each Vue app instance
             app_id = f"app-{day}-{i}"
@@ -270,9 +272,9 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
             </a>
             <div class="collapse" id="collapseExample-{app_id}">
             <div class="card card-body">
-            <p>{report['chatgpt_hints']}</p>
+            {report['chatgpt_hints']}
             <div id="{app_id}"  style="min-height: 400px;">
-                <pev2 :plan-source="plan" :plan-query="query"/>
+                <pev2 :plan-source="plan" :plan-query="query"></pev2>
             </div>
             <script>
                 createApp({{
@@ -308,7 +310,7 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
         content += f"<tr scope='row'><td>{query_name[:140]} ({query_codes[query_name]})</td><td>{count}</td></tr>"
 
     content += "</tbody> </table> </div></div>"
-    content += f"<p>{frequent_hints_analysis}</p>"
+    content += f"{frequent_hints_analysis}"
 
     html = html_template.format(content=content, model=model)
     Path(output_path).write_text(html, encoding="utf-8")
@@ -374,6 +376,7 @@ def main(log_file_path, model, output_path, max_ai_calls, timeout):
                     timestamp = parsed_result["timestamp"]
                     day = timestamp[:10]
                     query_code = stable_hash_five_characters(query_name)
+                    query = html.escape(parsed_result["query_text"])
 
                     logger.debug(f"Estimated tokens for plan: {estimated_tokens}")
 
@@ -399,7 +402,7 @@ def main(log_file_path, model, output_path, max_ai_calls, timeout):
                         "title": title,
                         "chatgpt_hints": ai_hints,
                         "plan": execution_plan,
-                        "query_text": parsed_result["query_text"],
+                        "query_text": query,
                         "query_timestamp": timestamp,
                         "query_name": query_name,
                         "job_name": parsed_result["job_name"],

@@ -1,0 +1,60 @@
+[PLAN_ANALYSIS]
+Act as a DBA expert. Analyze the following PostgreSQL query plan for potential optimizations.
+
+Structure of your answer:
+1. Query description: Provide a summary description of the main characteristics of the query (tables involved, join types, important columns, etc.).
+2. Execution time: Indicate its estimated execution time in hours and minutes, without any particular formatting.
+3. Analysis and recommendation:
+• Identify the node in the execution plan with the highest cost.
+• Propose a single targeted recommendation for this node, which respects the following constraints:
+• No modification of the query structure (join types, etc.).
+• The B_CLASSNAME column is not discriminating, it always contains the same value.
+• Do not use generic recommendations related to memory, parallelization or statistics, because they are already optimized.
+• If you propose an index, its name must be prefixed with usr_.
+
+Expected format:
+• Use <code> tags for all database object names, PostgreSQL parameters and SQL code snippets.
+• PostgreSQL parameters cited must include a link to the PostgreSQLco.nf documentation in the following format: https://postgresqlco.nf/doc/fr/param/<parameter>/.
+
+<p>
+<strong>Description:</strong> Quick and concise description of the query.
+</p>
+<p>
+<strong>Execution time:</strong>[X hours Y minutes].
+</p>
+<p>
+<strong>Put the title of the recommendation here</strong>
+</p>
+<p>
+detailed and actionable recommendation, with a concise justification.
+</p>
+
+[FINAL_ANALYSIS]
+Analyze the following optimizations for PostgreSQL queries and identify the most common and important suggestions. Provide a summary of the 3-5 most common optimizations across all analyzed queries. Focus on specific, actionable recommendations.
+
+Here are the collected optimizations:
+
+{all_hints}
+
+Expected structure:
+1. Provide a concise summary of the most common optimizations.
+2. Detail their potential impact on performance.
+3. Identify any visible patterns or trends across the analyzed queries.
+
+Expected response format:
+• A short introductory sentence.
+• A bulleted list in HTML, with concise summary elements.
+
+Example of an HTML response:
+
+<p>
+Here is a summary of the most common optimizations identified:
+</p>
+<ul>
+<li>Optimization 1: [Concise description] - Impact: [Expected impact].</li>
+<li>Optimization 2: [Concise description] - Impact: [Expected impact].</li>
+<li>Optimization 3: [Concise description] - Impact: [Expected impact].</li>
+</ul>
+<p>
+Observed trends: [Short description of common patterns or trends].
+</p>

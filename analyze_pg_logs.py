@@ -16,32 +16,36 @@ logger = logging.getLogger(__name__)
 g_total_input_tokens = 0
 
 
-def load_prompts(file_path='prompts.txt'):
+def load_prompts(lang):
     prompts = {}
     current_prompt = None
     current_content = []
+    base_path = Path(__file__).parent / 'prompts'
+
+    lang_file_path = f"{base_path}_{lang}.txt"
 
     try:
-        with open(file_path, 'r') as file:
+        with open(lang_file_path, 'r') as file:
             for line in file:
-                if line.strip().startswith('[') and line.strip().endswith(']'):
+                line = line.strip()
+                if line.startswith('[') and line.endswith(']'):
                     if current_prompt:
                         prompts[current_prompt] = '\n'.join(current_content).strip()
-                    current_prompt = line.strip()[1:-1]
+                    current_prompt = line[1:-1]
                     current_content = []
                 else:
-                    current_content.append(line.rstrip())
+                    current_content.append(line)
 
         if current_prompt:
             prompts[current_prompt] = '\n'.join(current_content).strip()
 
         return prompts
     except FileNotFoundError:
-        logger.error(f"Prompts file not found: {file_path}")
-        return None
+        logger.error(f"Prompts file not found: {lang_file_path}")
     except Exception as e:
         logger.error(f"Error reading prompts file: {e}")
-        return None
+
+    return None
 
 
 def load_api_keys(file_path='api_keys.txt'):
@@ -344,7 +348,7 @@ def stable_hash_five_characters(value):
 from collections import defaultdict
 
 
-def main(log_file_path, model, output_path, max_ai_calls, timeout):
+def main(log_file_path, model, output_path, max_ai_calls, timeout, lang):
     model_token_limit = g_token_limits.get(model, 8192)
     in_plan = False
     plan_lines = []
@@ -453,16 +457,25 @@ if __name__ == "__main__":
                         help="Maximum number of AI calls to make. Use -1 for unlimited (default: -1)")
     parser.add_argument("-t", "--timeout", type=int, default=90,
                         help="Timeout for AI API calls in seconds (default: 90)")
+    parser.add_argument("-l", "--lang", default="fr",
+                        help="Language for prompts and output (default: fr)")
     args = parser.parse_args()
 
     logger.info(f"Processing PostgreSQL log file {args.log_filename}")
     logger.info(f"Using model: {args.model}")
     logger.info(f"Maximum AI calls: {args.max_ai_calls if args.max_ai_calls != -1 else 'Unlimited'}")
     logger.info(f"AI API call timeout: {args.timeout} seconds")
+    logger.info(f"Language: {args.lang}")
     logger.info(f"Output report: {args.log_filename}_report.html")
 
-    # Load API keys
+    g_prompts = load_prompts(args.lang)
+
+    if not g_prompts:
+        logger.error(f"Failed to load prompts for language: {args.lang}. Exiting.")
+        exit(1)
+
     api_keys = load_api_keys()
+
     if api_keys:
         g_openai_key = api_keys.get('openai_key')
         g_gemini_key = api_keys.get('gemini_key')
@@ -470,10 +483,4 @@ if __name__ == "__main__":
         logger.error("Failed to load API keys. Exiting.")
         exit(1)
 
-    g_prompts = load_prompts()
-
-    if not g_prompts:
-        logger.error("Failed to load prompts. Exiting.")
-        exit(1)
-
-    main(args.log_filename, args.model, f"{args.log_filename}_report.html", args.max_ai_calls, args.timeout)
+    main(args.log_filename, args.model, f"{args.log_filename}_report.html", args.max_ai_calls, args.timeout, args.lang)

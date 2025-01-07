@@ -5,7 +5,7 @@ This tool analyzes PostgreSQL auto_explain log files using AI (OpenAI GPT or Goo
 ## Features
 
 - Analyzes PostgreSQL execution plans from auto_explain logs
-- Leverages AI (GPT-4/3.5 or Gemini) to provide optimization recommendations
+- Leverages AI (GPT-4/3.5 or Gemini) to provide optimization recommendations in different languages
 - Generates a unique hashcode for each query for identification and tracking over multiple analysis
 - Generates interactive HTML reports with:
     - Query execution plans visualization using pev2
@@ -85,6 +85,7 @@ python analyze_pg_logs.py path/to/postgresql.log -m MODEL_NAME -c MAX_AI_CALLS
         - OpenAI: gpt-4o, gpt-4o-mini, gpt-3.5-turbo
         - Gemini: gemini-2.0-flash-exp, gemini-1.5-flash, gemini-1.5-pro
 - `-c, --max-ai-calls`: Maximum number of AI API calls to make (default: -1 for unlimited)
+- `-l, --lang` : Language, (default fr)
 
 ### Example
 
@@ -110,6 +111,8 @@ The tool generates an HTML report containing:
     - Query occurrence statistics (using hashcodes for unique identification)
     - Most common optimization patterns
     - Overall recommendations
+
+You can have the analysis in you own language by providing a custom prompt file. 
 
 ## Notes
 

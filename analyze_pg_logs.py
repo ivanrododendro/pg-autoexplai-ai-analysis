@@ -13,11 +13,13 @@ import argparse
 
 __QUERY_NAME_LIMIT = 140
 __DEFAULT_TOKEN_LIMIT = 8192
+__DEFAULT_MODEL_TEMPERATURE = 0.5
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+g_model_temperature = __DEFAULT_MODEL_TEMPERATURE
 g_model_token_limit = __DEFAULT_TOKEN_LIMIT
 g_openai_key = None
 g_gemini_key = None
@@ -98,7 +100,7 @@ async def call_gemini(full_prompt, model, api_key, timeout):
     genai.configure(api_key=api_key)
 
     # Set up the model
-    model = genai.GenerativeModel(model)
+    model = genai.GenerativeModel(model, generation_config=genai.GenerationConfig(temperature=g_model_temperature))
 
     try:
         # Generate content
@@ -150,7 +152,8 @@ def call_chatgpt(full_prompt, model, openai_key, timeout=90):
         "messages": [
             {"role": "system", "content": "You are a PostgreSQL optimization expert."},
             {"role": "user", "content": full_prompt}
-        ]
+        ],
+        "temperature": g_model_temperature  # Add the temperature parameter here
     }
 
     # Headers for the API request
@@ -383,6 +386,8 @@ def parse_cli_arguments():
                         help="Timeout for AI API calls in seconds (default: 90)")
     parser.add_argument("-l", "--lang", default="fr",
                         help="Language for prompts and output (default: fr)")
+    parser.add_argument("-p", "--temperature", type=float, default=__DEFAULT_MODEL_TEMPERATURE,
+                        help="Temperature for the AI model (default: 0.5)")
     return parser.parse_args()
 
 
@@ -461,8 +466,10 @@ def main():
     logger.info(f"AI API call timeout: {args.timeout} seconds")
     logger.info(f"Language: {args.lang}")
     logger.info(f"Output report: {args.log_filename}_report.html")
+    logger.info(f"Model temperature : {args.temperature}")
 
-    global g_prompts
+    global g_prompts,  g_model_token_limit, g_model_temperature,  g_openai_key, g_gemini_key
+
     g_prompts = load_prompts(args.lang)
 
     if not g_prompts:
@@ -472,22 +479,23 @@ def main():
     api_keys = load_api_keys()
 
     if api_keys:
-        global g_openai_key, g_gemini_key
         g_openai_key = api_keys.get('openai_key')
         g_gemini_key = api_keys.get('gemini_key')
     else:
         logger.error("Failed to load API keys. Exiting.")
         exit(1)
 
-    global g_model_token_limit
     g_model_token_limit = g_token_limits.get(args.model, __DEFAULT_TOKEN_LIMIT)
+    g_model_temperature = args.temperature
 
     reports, days, query_occurrences, query_codes = process_log_file(
         args.log_filename, args.model, args.max_ai_calls, args.timeout
     )
 
     analysis = call_ai_for_final_analysis(reports, args.model, args.timeout)
-    generate_html_report(f"{args.log_filename}_report.html", analysis, args.model, query_occurrences, days, query_codes)
+
+    generate_html_report(f"{args.log_filename}_report.html", analysis, args.model, query_occurrences, days,
+                         query_codes)
 
     logger.info(f"Total input tokens processed: {g_total_input_tokens}")
 

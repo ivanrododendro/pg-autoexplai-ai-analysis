@@ -8,12 +8,32 @@ import logging
 import google.generativeai as genai
 import asyncio
 import hashlib
+from collections import defaultdict
+import argparse
+
+__QUERY_NAME_LIMIT = 140
+__DEFAULT_TOKEN_LIMIT = 8192
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+g_model_token_limit = __DEFAULT_TOKEN_LIMIT
+g_openai_key = None
+g_gemini_key = None
+g_prompts = {}
 g_total_input_tokens = 0
+g_token_limits = {
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 128000,
+    "gpt-3.5-turbo": 16385,
+    "o1": 200000,
+    "o1-mini": 128000,
+    "gemini-2.0-flash-exp": 1048576,
+    "gemini-1.5-flash": 1048576,
+    "gemini-1.5-flash-8b": 1048576,
+    "gemini-1.5-pro": 2097152
+}
 
 
 def load_prompts(lang):
@@ -64,19 +84,6 @@ def load_api_keys(file_path='api_keys.txt'):
         return None
 
 
-g_token_limits = {
-    "gpt-4o": 128000,
-    "gpt-4o-mini": 128000,
-    "gpt-3.5-turbo": 16385,
-    "o1": 200000,
-    "o1-mini": 128000,
-    "gemini-2.0-flash-exp": 1048576,
-    "gemini-1.5-flash": 1048576,
-    "gemini-1.5-flash-8b": 1048576,
-    "gemini-1.5-pro": 2097152
-}
-
-
 # Add this function to estimate token count
 def estimate_token_count(text, model="gpt-4"):
     global g_total_input_tokens
@@ -84,6 +91,7 @@ def estimate_token_count(text, model="gpt-4"):
     token_count = len(encoding.encode(text))
     g_total_input_tokens += token_count
     return token_count
+
 
 async def call_gemini(full_prompt, model, api_key, timeout):
     # Configure the Gemini API
@@ -112,7 +120,7 @@ async def call_gemini(full_prompt, model, api_key, timeout):
         return None
 
 
-def send_plan_to_ai(plan, model, timeout):
+def call_ai_for_plan_analysis(plan, model, timeout):
     static_prompt = g_prompts.get('PLAN_ANALYSIS', '')
     full_prompt = static_prompt + "\n\n" + plan
 
@@ -120,6 +128,12 @@ def send_plan_to_ai(plan, model, timeout):
 
 
 def call_ai_provider(prompt, model, timeout):
+    estimated_tokens = estimate_token_count(prompt, model)
+
+    if estimated_tokens > g_model_token_limit:
+        ai_hints = f"Token count ({estimated_tokens}) exceeds the model limit ({g_model_token_limit}). AI analysis skipped."
+        return None
+
     if model.startswith("gpt"):
         return call_chatgpt(prompt, model, g_openai_key, timeout)
     elif model.startswith("gemini"):
@@ -169,7 +183,7 @@ def call_chatgpt(full_prompt, model, openai_key, timeout=90):
         return None
 
 
-def parse_log_entry_with_title(log_entry):
+def parse_log_entry(log_entry):
     # Extract the timestamp from the first 23 characters of the log entry
     timestamp = log_entry[:23].strip()
     # Extract the block from "Query Text:" to "Settings:"
@@ -230,9 +244,9 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
     - output_path (str): The path to save the generated HTML file.
     """
     html_template = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PostgreSQL Auto Explain AI ({model}) Report</title>
@@ -255,7 +269,6 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
     </html>
     """
     content = ""
-
     sorted_days = sorted(days.keys())
 
     for day in sorted_days:
@@ -311,7 +324,7 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
                 <tbody>
                 """
     for (query_name, count) in query_occurrences.items():
-        content += f"<tr scope='row'><td>{query_name[:140]} ({query_codes[query_name]})</td><td>{count}</td></tr>"
+        content += f"<tr scope='row'><td>{query_name[:__QUERY_NAME_LIMIT]} ({query_codes[query_name]})</td><td>{count}</td></tr>"
 
     content += "</tbody> </table> </div></div>"
     content += f"{frequent_hints_analysis}"
@@ -320,7 +333,7 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
     Path(output_path).write_text(html, encoding="utf-8")
 
 
-def stable_hash_five_characters(value):
+def hash_five_characters(value):
     """
     Generates a unique and consistent 5-character hash for a given value.
 
@@ -345,94 +358,7 @@ def stable_hash_five_characters(value):
     return base36[:5].zfill(5)  # Pad with leading zeros if necessary
 
 
-from collections import defaultdict
-
-
-def main(log_file_path, model, output_path, max_ai_calls, timeout, lang):
-    model_token_limit = g_token_limits.get(model, 8192)
-    in_plan = False
-    plan_lines = []
-    reports = []
-    days = defaultdict(list)  # Initialize days as a defaultdict of lists
-    ai_call_count = 1  # Initialize the counter
-    last_plan_line = 0  # Initialize the line counter
-    query_occurrences = {}  # Map to store query occurrences by title
-    query_codes = {}  # Map to store query occurrences by title
-
-    with open(log_file_path, 'r', encoding='utf-8') as f:
-        for line_number, line in enumerate(f, 1):
-            if not in_plan and 'plan:' in line:
-                in_plan = True
-                plan_lines = [line]
-                last_plan_line = line_number  # Update the last detected plan line
-                continue
-
-            if in_plan:
-                plan_lines.append(line)
-                if line.strip().startswith("Settings:"):
-                    plan_text = "".join(plan_lines)
-                    parsed_result = parse_log_entry_with_title(plan_text)
-
-                    query_name = parsed_result["query_name"]
-                    title = parsed_result["job_name"] + query_name
-                    execution_plan = parsed_result["execution_plan"]
-                    estimated_tokens = estimate_token_count(plan_text, model)
-                    timestamp = parsed_result["timestamp"]
-                    day = timestamp[:10]
-                    query_code = stable_hash_five_characters(query_name)
-                    query = html.escape(parsed_result["query_text"])
-
-                    logger.debug(f"Estimated tokens for plan: {estimated_tokens}")
-
-                    # Update query occurrences
-                    query_occurrences[query_name] = query_occurrences.get(query_name, 0) + 1
-                    query_codes[query_name] = query_code
-
-                    if estimated_tokens > model_token_limit:
-                        logger.warning(
-                            f"Token count ({estimated_tokens}) exceeds the model limit ({model_token_limit}). AI analysis skipped.")
-                        ai_hints = f"Token count ({estimated_tokens}) exceeds the model limit ({model_token_limit}). AI analysis skipped."
-                    else:
-                        try:
-                            logger.info(
-                                f"Sending plan to AI ({model}) for analysis for query at line {last_plan_line: } (call #{ai_call_count})")
-                            ai_hints = send_plan_to_ai(plan_text, model, timeout)
-                            ai_call_count += 1  # Increment the counter
-
-                        except Exception as e:
-                            ai_hints = f"Error during ChatGPT analysis: {e}"
-
-                    report = {
-                        "title": title,
-                        "chatgpt_hints": ai_hints,
-                        "plan": execution_plan,
-                        "query_text": query,
-                        "query_timestamp": timestamp,
-                        "query_name": query_name,
-                        "job_name": parsed_result["job_name"],
-                        "code": query_code,
-                        "day": day  # Add the day to each report
-                    }
-
-                    reports.append(report)
-                    days[day].append(report)  # Add the report to the corresponding day
-
-                    in_plan = False
-                    plan_lines = []
-
-                    # Exit the loop if AI has been called more than the limit.
-                    if max_ai_calls != -1 and ai_call_count > max_ai_calls:
-                        logger.info(f"Reached maximum AI calls limit ({max_ai_calls}). Stopping analysis.")
-                        break
-
-    analysis = create_analysis(reports, model, timeout)
-
-    generate_html_report(output_path, analysis, model, query_occurrences, days, query_codes)
-
-    logger.info(f"Total input tokens processed: {g_total_input_tokens}")
-
-
-def create_analysis(reports, model, timeout):
+def call_ai_for_final_analysis(reports, model, timeout):
     logger.info("Creating final analysis...")
 
     # Concatenate all chatgpt_hints
@@ -446,9 +372,7 @@ def create_analysis(reports, model, timeout):
     return call_ai_provider(prompt, model, timeout)
 
 
-if __name__ == "__main__":
-    import argparse
-
+def parse_cli_arguments():
     parser = argparse.ArgumentParser(description="Process PostgreSQL log file and generate an analysis report.")
     parser.add_argument("log_filename", help="Path to the PostgreSQL log file")
     parser.add_argument("-m", "--model", default="gemini-2.0-flash-exp",
@@ -459,7 +383,77 @@ if __name__ == "__main__":
                         help="Timeout for AI API calls in seconds (default: 90)")
     parser.add_argument("-l", "--lang", default="fr",
                         help="Language for prompts and output (default: fr)")
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def process_log_file(log_file_path, model, max_ai_calls, timeout):
+    reports, days, query_occurrences, query_codes = [], defaultdict(list), {}, {}
+    ai_call_count = 1
+
+    with open(log_file_path, 'r', encoding='utf-8') as f:
+        for line_number, line in enumerate(f, 1):
+            if 'plan:' in line:
+                plan_lines = extract_plan_lines(f, line)
+                parsed_result = parse_log_entry("".join(plan_lines))
+
+                logger.info(
+                    f"Sending plan to AI ({model}) for analysis for query at line {line_number} (call #{ai_call_count})")
+
+                report = process_parsed_result(parsed_result, model, timeout)
+
+                if report is not None:
+                    ai_call_count += 1
+
+                if report:
+                    query_name = report["query_name"]
+                    reports.append(report)
+                    days[report["day"]].append(report)
+                    query_occurrences[query_name] = query_occurrences.get(query_name, 0) + 1
+                    query_codes[query_name] = report["code"]
+
+                if max_ai_calls != -1 and ai_call_count > max_ai_calls:
+                    break
+
+    return reports, days, query_occurrences, query_codes
+
+
+def extract_plan_lines(file, first_line):
+    plan_lines = [first_line]
+    for line in file:
+        plan_lines.append(line)
+        if line.strip().startswith("Settings:"):
+            break
+    return plan_lines
+
+
+def process_parsed_result(parsed_result, model, timeout):
+    query_name = parsed_result["query_name"]
+    title = parsed_result["job_name"] + query_name
+    execution_plan = parsed_result["execution_plan"]
+    timestamp = parsed_result["timestamp"]
+    day = timestamp[:10]
+    query_code = hash_five_characters(query_name)
+    query = html.escape(parsed_result["query_text"])
+
+    ai_hints = call_ai_for_plan_analysis(parsed_result["query_text"], model, timeout)
+
+    report = {
+        "title": title,
+        "chatgpt_hints": ai_hints,
+        "plan": execution_plan,
+        "query_text": query,
+        "query_timestamp": timestamp,
+        "query_name": query_name,
+        "job_name": parsed_result["job_name"],
+        "code": query_code,
+        "day": day
+    }
+
+    return report
+
+
+def main():
+    args = parse_cli_arguments()
 
     logger.info(f"Processing PostgreSQL log file {args.log_filename}")
     logger.info(f"Using model: {args.model}")
@@ -468,6 +462,7 @@ if __name__ == "__main__":
     logger.info(f"Language: {args.lang}")
     logger.info(f"Output report: {args.log_filename}_report.html")
 
+    global g_prompts
     g_prompts = load_prompts(args.lang)
 
     if not g_prompts:
@@ -477,10 +472,25 @@ if __name__ == "__main__":
     api_keys = load_api_keys()
 
     if api_keys:
+        global g_openai_key, g_gemini_key
         g_openai_key = api_keys.get('openai_key')
         g_gemini_key = api_keys.get('gemini_key')
     else:
         logger.error("Failed to load API keys. Exiting.")
         exit(1)
 
-    main(args.log_filename, args.model, f"{args.log_filename}_report.html", args.max_ai_calls, args.timeout, args.lang)
+    global g_model_token_limit
+    g_model_token_limit = g_token_limits.get(args.model, __DEFAULT_TOKEN_LIMIT)
+
+    reports, days, query_occurrences, query_codes = process_log_file(
+        args.log_filename, args.model, args.max_ai_calls, args.timeout
+    )
+
+    analysis = call_ai_for_final_analysis(reports, args.model, args.timeout)
+    generate_html_report(f"{args.log_filename}_report.html", analysis, args.model, query_occurrences, days, query_codes)
+
+    logger.info(f"Total input tokens processed: {g_total_input_tokens}")
+
+
+if __name__ == "__main__":
+    main()

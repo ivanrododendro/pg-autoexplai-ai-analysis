@@ -30,7 +30,8 @@ detailed and actionable recommendation, with a concise justification.
 </p>
 
 [FINAL_ANALYSIS]
-Analyze the following optimizations for PostgreSQL queries and identify the most common and important suggestions. Provide a summary of the 3-5 most common optimizations across all analyzed queries. Focus on specific, actionable recommendations.
+Analyze the following optimizations for PostgreSQL queries and identify the most common and important suggestions.
+Provide a summary of the 3-5 most common optimizations across all analyzed queries. Focus on specific, actionable recommendations.
 
 Here are the collected optimizations:
 

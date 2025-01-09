@@ -190,7 +190,7 @@ def parse_log_entry(log_entry):
     # Extract the timestamp from the first 23 characters of the log entry
     timestamp = log_entry[:23].strip()
     # Extract the block from "Query Text:" to "Settings:"
-    match = re.search(r"Query Text:(.*?)Settings:", log_entry, re.DOTALL)
+    match = re.search(r"Query Text:(.*?)$", log_entry, re.DOTALL)
     if not match:
         raise ValueError("Could not parse log entry: Missing query text or execution plan.")
 
@@ -440,7 +440,7 @@ def process_parsed_result(parsed_result, model, timeout):
     query_code = hash_five_characters(query_name)
     query = html.escape(parsed_result["query_text"])
 
-    ai_hints = call_ai_for_plan_analysis(parsed_result["query_text"], model, timeout)
+    ai_hints = call_ai_for_plan_analysis(execution_plan, model, timeout)
 
     report = {
         "title": title,

@@ -87,9 +87,10 @@ def load_api_keys(file_path='api_keys.txt'):
 
 
 # Add this function to estimate token count
-def estimate_token_count(text, model="gpt-4"):
+def estimate_token_count(text):
+    model4tokens = "gpt-4o"
     global g_total_input_tokens
-    encoding = tiktoken.encoding_for_model("gpt-4")
+    encoding = tiktoken.encoding_for_model(model4tokens)
     token_count = len(encoding.encode(text))
     g_total_input_tokens += token_count
     return token_count
@@ -130,11 +131,10 @@ def call_ai_for_plan_analysis(plan, model, timeout):
 
 
 def call_ai_provider(prompt, model, timeout):
-    estimated_tokens = estimate_token_count(prompt, model)
+    estimated_tokens = estimate_token_count(prompt)
 
     if estimated_tokens > g_model_token_limit:
-        ai_hints = f"Token count ({estimated_tokens}) exceeds the model limit ({g_model_token_limit}). AI analysis skipped."
-        return None
+        return f"Token count ({estimated_tokens}) exceeds the model limit ({g_model_token_limit}). AI analysis skipped."
 
     if model.startswith("gpt"):
         return call_chatgpt(prompt, model, g_openai_key, timeout)
@@ -167,15 +167,15 @@ def call_chatgpt(full_prompt, model, openai_key, timeout=90):
         response = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers,
                                  verify=False, timeout=timeout)
         response.raise_for_status()  # Raise an error for bad status codes
-        responseJson = response.json()
+        response_json = response.json()
 
-        if 'choices' in responseJson and len(responseJson['choices']) > 0:
-            responseText = responseJson['choices'][0]['message']['content']
+        if 'choices' in response_json and len(response_json['choices']) > 0:
+            response_text = response_json['choices'][0]['message']['content']
         else:
             logger.warning("No analysis content found in ChatGPT response.")
-            responseText = "No analysis content found in ChatGPT response."
+            response_text = "No analysis content found in ChatGPT response."
 
-        return responseText
+        return response_text
     except requests.exceptions.Timeout:
         logger.error(f"Timeout error: The request to OpenAI API timed out after {timeout} seconds.")
         return None
@@ -332,8 +332,8 @@ def generate_html_report(output_path, frequent_hints_analysis, model, query_occu
     content += "</tbody> </table> </div></div>"
     content += f"{frequent_hints_analysis}"
 
-    html = html_template.format(content=content, model=model)
-    Path(output_path).write_text(html, encoding="utf-8")
+    html_content = html_template.format(content=content, model=model)
+    Path(output_path).write_text(html_content, encoding="utf-8")
 
 
 def hash_five_characters(value):

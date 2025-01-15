@@ -136,7 +136,7 @@ def call_ai_provider(prompt, model, timeout):
         ai_hints = f"Token count ({estimated_tokens}) exceeds the model limit ({g_model_token_limit}). AI analysis skipped."
         return None
 
-    if model.startswith("gpt"):
+    if model.startswith("gpt") or model.startswith("o1"):
         return call_chatgpt(prompt, model, g_openai_key, timeout)
     elif model.startswith("gemini"):
         return asyncio.run(call_gemini(prompt, model, g_gemini_key, timeout))

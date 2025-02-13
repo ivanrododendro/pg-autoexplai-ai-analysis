@@ -25,6 +25,7 @@ g_model_temperature = __DEFAULT_MODEL_TEMPERATURE
 g_model_token_limit = __DEFAULT_TOKEN_LIMIT
 g_openai_key = None
 g_gemini_key = None
+g_deepseek_key = None
 g_prompts = {}
 g_total_input_tokens = 0
 g_token_limits = {
@@ -33,7 +34,7 @@ g_token_limits = {
     "gpt-3.5-turbo": 16385,
     "o1": 200000,
     "o1-mini": 128000,
-    "gemini-2.0-flash-exp": 1048576,
+    "gemini-2.0-flash": 1048576,
     "gemini-1.5-flash": 1048576,
     "gemini-1.5-flash-8b": 1048576,
     "gemini-1.5-pro": 2097152
@@ -142,9 +143,51 @@ def call_ai_provider(prompt, model, timeout):
         return call_chatgpt(prompt, model, g_openai_key, timeout)
     elif model.startswith("gemini"):
         return asyncio.run(call_gemini(prompt, model, g_gemini_key, timeout))
+    elif model.startswith("deepseek"):
+        return call_deepseek(prompt, model, g_deepseek_key, timeout)
     else:
         logger.error(f"Unsupported model: {model}")
         return None
+
+
+def call_deepseek(full_prompt, model, api_key, timeout=90):
+    url = "https://api.deepseek.com/chat/completions"
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": full_prompt}],  # Adjusted to match OpenAI-style structure
+        "temperature": g_model_temperature,
+        "max_tokens": 500  # Adjust as needed
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+
+        response_json = response.json()
+
+        # Check for the correct key in the API response
+        completion_text = response_json.get("choices", [{}])[0].get("message", {}).get("content")
+        if completion_text:
+            return completion_text.strip()
+        else:
+            logger.warning("DeepSeek API response is missing expected content.")
+            return "DeepSeek response contained no text."
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout: The DeepSeek API request took longer than {timeout} seconds.")
+        return "Error: Request timed out."
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"API request error: {e}")
+        if hasattr(e, "response") and e.response is not None:
+            logger.error(f"Response content: {e.response.text}")
+        return f"Error: {str(e)}"
 
 
 def call_chatgpt(full_prompt, model, openai_key, timeout=90):
@@ -380,8 +423,8 @@ def call_ai_for_final_analysis(reports, model, timeout):
 def parse_cli_arguments():
     parser = argparse.ArgumentParser(description="Process PostgreSQL log file and generate an analysis report.")
     parser.add_argument("log_filename", help="Path to the PostgreSQL log file")
-    parser.add_argument("-m", "--model", default="gemini-2.0-flash-exp",
-                        help="AI model to use for analysis (default: gemini-2.0-flash-exp)")
+    parser.add_argument("-m", "--model", default="gemini-2.0-flash",
+                        help="AI model to use for analysis (default: gemini-2.0-flash)")
     parser.add_argument("-c", "--max-ai-calls", type=int, default=-1,
                         help="Maximum number of AI calls to make. Use -1 for unlimited (default: -1)")
     parser.add_argument("-t", "--timeout", type=int, default=90,
@@ -470,7 +513,7 @@ def main():
     logger.info(f"Output report: {args.log_filename}_report.html")
     logger.info(f"Model temperature : {args.temperature}")
 
-    global g_prompts,  g_model_token_limit, g_model_temperature,  g_openai_key, g_gemini_key
+    global g_prompts,  g_model_token_limit, g_model_temperature,  g_openai_key, g_gemini_key, g_deepseek_key
 
     g_prompts = load_prompts(args.lang)
 
@@ -483,6 +526,7 @@ def main():
     if api_keys:
         g_openai_key = api_keys.get('openai_key')
         g_gemini_key = api_keys.get('gemini_key')
+        g_deepseek_key = api_keys.get('deepseek_key')
     else:
         logger.error("Failed to load API keys. Exiting.")
         exit(1)

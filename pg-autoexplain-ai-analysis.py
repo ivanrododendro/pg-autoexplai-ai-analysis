@@ -1,25 +1,40 @@
 #!/usr/bin/env python
 
-from pathlib import Path
-
-import html
-import requests
-import tiktoken
-import re
-import logging
-import google.generativeai as genai
+import argparse
 import asyncio
 import hashlib
+import html
+import logging
+import re
 from collections import defaultdict
-import argparse
+from pathlib import Path
+
+import google.generativeai as genai
+import requests
+import tiktoken
+from ratelimiter import RateLimiter
 
 __QUERY_NAME_LIMIT = 140
 __DEFAULT_TOKEN_LIMIT = 8192
 __DEFAULT_MODEL_TEMPERATURE = 0.5
+RATE_LIMITS = {
+    "gpt-4o": (10, 60),
+    "gpt-4o-mini": (10, 60),
+    "gpt-3.5-turbo": (10, 60),
+    "o1": (10, 60),
+    "o1-mini": (10, 60),
+    "gemini-2.0-flash-exp": (15, 60),
+    "gemini-1.5-flash": (15, 60),
+    "gemini-1.5-flash-8b": (15, 60),
+    "gemini-1.5-pro": (15, 60)
+}
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+g_calls = None
+g_period  = None
+g_limiter = None
 
 g_model_temperature = __DEFAULT_MODEL_TEMPERATURE
 g_model_token_limit = __DEFAULT_TOKEN_LIMIT
@@ -133,21 +148,22 @@ def call_ai_for_plan_analysis(plan, model, timeout):
 
 
 def call_ai_provider(prompt, model, timeout):
-    estimated_tokens = estimate_token_count(prompt, model)
+    with g_limiter :
+        estimated_tokens = estimate_token_count(prompt, model)
 
-    if estimated_tokens > g_model_token_limit:
-        ai_hints = f"Token count ({estimated_tokens}) exceeds the model limit ({g_model_token_limit}). AI analysis skipped."
-        return None
+        if estimated_tokens > g_model_token_limit:
+            ai_hints = f"Token count ({estimated_tokens}) exceeds the model limit ({g_model_token_limit}). AI analysis skipped."
+            return None
 
-    if model.startswith("gpt") or model.startswith("o1"):
-        return call_chatgpt(prompt, model, g_openai_key, timeout)
-    elif model.startswith("gemini"):
-        return asyncio.run(call_gemini(prompt, model, g_gemini_key, timeout))
-    elif model.startswith("deepseek"):
-        return call_deepseek(prompt, model, g_deepseek_key, timeout)
-    else:
-        logger.error(f"Unsupported model: {model}")
-        return None
+        if model.startswith("gpt") or model.startswith("o1"):
+            return call_chatgpt(prompt, model, g_openai_key, timeout)
+        elif model.startswith("gemini"):
+            return asyncio.run(call_gemini(prompt, model, g_gemini_key, timeout))
+        elif model.startswith("deepseek"):
+            return call_deepseek(prompt, model, g_deepseek_key, timeout)
+        else:
+            logger.error(f"Unsupported model: {model}")
+            return None
 
 
 def call_deepseek(full_prompt, model, api_key, timeout=90):
@@ -513,7 +529,7 @@ def main():
     logger.info(f"Output report: {args.log_filename}_report.html")
     logger.info(f"Model temperature : {args.temperature}")
 
-    global g_prompts,  g_model_token_limit, g_model_temperature,  g_openai_key, g_gemini_key, g_deepseek_key
+    global g_prompts,  g_model_token_limit, g_model_temperature,  g_openai_key, g_gemini_key, g_deepseek_key, g_calls, g_period, g_limiter
 
     g_prompts = load_prompts(args.lang)
 
@@ -533,6 +549,9 @@ def main():
 
     g_model_token_limit = g_token_limits.get(args.model, __DEFAULT_TOKEN_LIMIT)
     g_model_temperature = args.temperature
+    g_calls, g_period = RATE_LIMITS.get(args.model, (10, 60))  # Default to 10 calls per minute if model not found
+    logger.info(f"Limit AI calls to {g_calls} per {g_period} seconds")
+    g_limiter = RateLimiter(max_calls=g_calls, period=g_period)
 
     reports, days, query_occurrences, query_codes = process_log_file(
         args.log_filename, args.model, args.max_ai_calls, args.timeout
